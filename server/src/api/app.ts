@@ -10,6 +10,7 @@ import { runEvals } from "../eval/runner.ts";
 import { MockErp, ErpError } from "../erp/erp.ts";
 import { scenarios, getScenario } from "../scenarios/index.ts";
 import type { AgentRunResult, Planner } from "../agent/types.ts";
+import { Workspace } from "../workspace/workspace.ts";
 
 /**
  * HTTP API for the UI. Each scenario run gets its own isolated MockErp "sandbox" that is kept in
@@ -90,6 +91,88 @@ export function createApp(opts: { plannerFactory?: (p: "policy" | "anthropic") =
     } catch (e) {
       next(e);
     }
+  });
+
+  // ---- live workspace: simulated warehouse + monitoring agent ----------------------------------
+  const ws = new Workspace({ params: config.params, today: config.simDate, plannerFactory: makePlanner });
+  const provider = z.enum(["policy", "anthropic"]).optional();
+
+  app.get("/api/workspace", (_req, res) => res.json(ws.snapshot()));
+
+  app.post("/api/workspace/advance", async (req, res, next) => {
+    try {
+      const b = z.object({ days: z.number().int().min(1).max(30).default(1), provider }).parse(req.body ?? {});
+      const r = await ws.advance(b.days, b.provider ?? config.provider);
+      res.json({ ...r, workspace: ws.snapshot() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/workspace/scan", async (req, res, next) => {
+    try {
+      const b = z.object({ provider }).parse(req.body ?? {});
+      const r = await ws.scan(b.provider ?? config.provider);
+      res.json({ ...r, workspace: ws.snapshot() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  const eventBody = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("sales_surge"), sku: z.string(), node: z.string(), multiplier: z.number().min(0.2).max(5) }),
+    z.object({ type: z.literal("sales_normal"), sku: z.string(), node: z.string() }),
+    z.object({ type: z.literal("supplier_short"), poId: z.string(), confirmedQty: z.number().int().min(0) }),
+    z.object({ type: z.literal("add_budget"), category: z.string(), amountUsd: z.number().positive().max(1_000_000) }),
+  ]);
+  app.post("/api/workspace/events", async (req, res, next) => {
+    try {
+      await ws.applyEventAndReact(eventBody.parse(req.body));
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/workspace/autopilot", (req, res, next) => {
+    try {
+      const b = z.object({ enabled: z.boolean(), intervalMs: z.number().int().min(500).max(60_000).optional(), provider }).parse(req.body);
+      if (b.enabled) ws.startAutopilot(b.intervalMs ?? 3000, b.provider ?? config.provider);
+      else ws.stopAutopilot();
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/workspace/reset", (_req, res) => {
+    ws.reset();
+    res.json(ws.snapshot());
+  });
+
+  app.post("/api/workspace/approvals/:id", (req, res, next) => {
+    try {
+      const { decision } = approvalBody.parse(req.body);
+      ws.resolveApproval(req.params.id, decision);
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/workspace/escalations/:id/resolve", (req, res, next) => {
+    try {
+      ws.resolveEscalation(req.params.id);
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/workspace/runs/:id", (req, res) => {
+    const r = ws.getRun(req.params.id);
+    if (!r) return res.status(404).json({ error: "run not found" });
+    res.json(r);
   });
 
   // Serve the built UI in production (single container).

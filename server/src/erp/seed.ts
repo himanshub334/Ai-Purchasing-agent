@@ -88,3 +88,33 @@ export function setTerms(state: ErpState, supplierId: string, sku: string, patch
   const t = state.terms.find((x) => x.supplierId === supplierId && x.sku === sku)!;
   Object.assign(t, patch);
 }
+
+/**
+ * The "live" workspace dataset: five SKU x node pairs in different health states so the monitor
+ * has something to find on day 1 and the simulated days keep creating new situations.
+ */
+export function workspaceState(today: string): ErpState {
+  const s = baseState(today);
+  const { main, dark } = NODES;
+  s.products.push();
+  s.terms.push({ supplierId: "SUP-BULK", sku: "NOODLE-4PK", unitCost: 1.6, leadTimeDays: 7, moq: 400, casePack: 20, maxQtyPerOrder: 6000 });
+  s.storage.find((x) => x.node === dark)!.otherUsedM3 = 52;
+
+  const pairs: Array<[string, string, number, number]> = [
+    // sku, node, baseline demand/day, on hand
+    ["RICE-5KG", main, 40, 300], // healthy, inbound PO
+    ["MILK-1L", main, 120, 420], // needs an order today
+    ["WATER-6PK", main, 60, 650], // healthy, inbound PO
+    ["NOODLE-4PK", main, 30, 1200], // excess
+    ["WATER-6PK", dark, 40, 150], // low, tight storage
+  ];
+  for (const [sku, node, base, onHand] of pairs) {
+    s.inventory.push(inv(sku, node, onHand, today));
+    s.demand.push(demand({ sku, node, baselineDaily: base }));
+  }
+  s.purchaseOrders.push(
+    { id: "PO-0001", sku: "RICE-5KG", node: main, supplierId: "SUP-AGRO", qty: 200, confirmedQty: 200, unitCost: 4.0, status: "open", createdAt: addDays(today, -3), eta: addDays(today, 2), createdBy: "system" },
+    { id: "PO-0002", sku: "WATER-6PK", node: main, supplierId: "SUP-FRESH", qty: 400, confirmedQty: 400, unitCost: 2.5, status: "open", createdAt: addDays(today, -1), eta: addDays(today, 3), createdBy: "buyer" },
+  );
+  return s;
+}

@@ -106,6 +106,8 @@ export interface Escalation {
   summary: string;
   recommendedNextStep: string;
   createdAt: ISODate;
+  /** open until a human acknowledges it; the monitor does not re-run the agent on a pair with an open escalation */
+  status: "open" | "resolved";
 }
 
 export interface ErpState {

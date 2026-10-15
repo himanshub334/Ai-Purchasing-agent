@@ -238,10 +238,69 @@ export class MockErp {
     return clone(po);
   }
 
-  createEscalation(e: Omit<Escalation, "id" | "createdAt">): Escalation {
-    const esc: Escalation = { ...e, id: `ESC-${++this.seq}`, createdAt: this.state.today };
+  createEscalation(e: Omit<Escalation, "id" | "createdAt" | "status">): Escalation {
+    const esc: Escalation = { ...e, id: `ESC-${++this.seq}`, createdAt: this.state.today, status: "open" };
     this.state.escalations.push(esc);
     return clone(esc);
+  }
+
+  resolveEscalation(id: string): Escalation {
+    const e = this.must(this.state.escalations.find((x) => x.id === id), `escalation ${id}`);
+    e.status = "resolved";
+    return clone(e);
+  }
+
+  /** A human releases extra budget for a category (used to unblock budget escalations). */
+  addBudget(category: string, usd: number): Budget {
+    if (!(usd > 0)) throw new ErpError("INVALID", "amount must be positive");
+    this.deductBudget(category, -usd);
+    return this.getBudget(category);
+  }
+
+  // ---- simulation clock -----------------------------------------------------------------------
+
+  /** All SKU x node pairs that have both stock and demand records. */
+  listPairs(): Array<{ sku: Sku; node: NodeId }> {
+    return this.state.demand.filter((d) => this.state.inventory.some((i) => i.sku === d.sku && i.node === d.node)).map((d) => ({ sku: d.sku, node: d.node }));
+  }
+
+  /**
+   * Advance the world by one day: inbound POs whose ETA has arrived are received (morning),
+   * then the day's sales are taken from stock. Sales history rolls forward and the planning
+   * forecast is refreshed weekly from the last 14 days, like a real planning system.
+   */
+  advanceDay(salesFor: (d: DemandInfo) => number): {
+    date: string;
+    received: Array<{ poId: string; sku: Sku; node: NodeId; qty: number }>;
+    sales: Array<{ sku: Sku; node: NodeId; demand: number; sold: number; lost: number }>;
+  } {
+    this.state.today = addDays(this.state.today, 1);
+    const received: Array<{ poId: string; sku: Sku; node: NodeId; qty: number }> = [];
+    for (const po of this.state.purchaseOrders) {
+      if (po.status === "open" && po.eta <= this.state.today) {
+        const rec = this.state.inventory.find((i) => i.sku === po.sku && i.node === po.node);
+        if (rec) rec.onHand += po.confirmedQty;
+        po.status = "received";
+        received.push({ poId: po.id, sku: po.sku, node: po.node, qty: po.confirmedQty });
+      }
+    }
+    const sales = this.state.demand.map((d) => {
+      const rec = this.state.inventory.find((i) => i.sku === d.sku && i.node === d.node);
+      const units = Math.max(0, Math.round(salesFor(d)));
+      const sold = rec ? Math.min(rec.onHand, units) : 0;
+      if (rec) {
+        rec.onHand -= sold;
+        rec.countedAt = this.state.today;
+      }
+      d.dailySales = [...d.dailySales.slice(1), units];
+      d.forecastAgeDays += 1;
+      if (d.forecastAgeDays >= 7) {
+        d.forecastDaily = Math.round(d.dailySales.reduce((a, b) => a + b, 0) / d.dailySales.length);
+        d.forecastAgeDays = 0;
+      }
+      return { sku: d.sku, node: d.node, demand: units, sold, lost: units - sold };
+    });
+    return { date: this.state.today, received, sales };
   }
 
   // ---- internals ----------------------------------------------------------------------------

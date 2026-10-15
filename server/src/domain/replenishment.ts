@@ -105,6 +105,8 @@ export interface Position {
   /** first day (1-based) stock hits zero if nothing else arrives, or null within horizon */
   stockoutDay: number | null;
   targetCoverDays: number;
+  /** classic (s,S) trigger: lead-time demand + safety stock over the lead time only */
+  reorderPoint: number;
 }
 
 export function computePosition(i: PositionInput): Position {
@@ -134,6 +136,7 @@ export function computePosition(i: PositionInput): Position {
     daysOfCoverNow: i.dailyDemand > 0 ? round2(i.onHand / i.dailyDemand) : Infinity,
     stockoutDay,
     targetCoverDays: i.dailyDemand > 0 ? round2(target / i.dailyDemand) : 0,
+    reorderPoint: Math.ceil(i.dailyDemand * i.leadTimeDays + i.params.serviceLevelZ * i.stdDaily * Math.sqrt(i.leadTimeDays)),
   };
 }
 
