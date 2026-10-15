@@ -32,8 +32,8 @@ interface ToolDef<S extends z.ZodType> {
 const sku = z.string().describe("SKU id, e.g. RICE-5KG");
 const node = z.string().describe("Fulfilment node id, e.g. FC-BLR-01");
 
-/** A run may never commit more than this multiple of the auto-approve limit, even with approvals. */
-const RUN_VALUE_CAP_MULTIPLE = 10;
+/** Default ceiling on what one agent run may create, even with approvals. Independent of the approval limit. */
+const DEFAULT_RUN_VALUE_CAP_USD = 50_000;
 
 const defs: ToolDef<any>[] = [
   {
@@ -239,7 +239,7 @@ function createPo(ctx: RunContext, i: { sku: string; node: string; supplierId: s
     .listPos()
     .filter((p) => p.createdBy === "agent" && p.status !== "cancelled")
     .reduce((a, p) => a + p.qty * p.unitCost, 0);
-  const runCap = ctx.params.autoApproveLimitUsd * RUN_VALUE_CAP_MULTIPLE;
+  const runCap = ctx.params.runValueCapUsd ?? DEFAULT_RUN_VALUE_CAP_USD;
   if (committed + value > runCap) return fail("GUARDRAIL", `run value cap of $${runCap} would be exceeded`, { committedUsd: committed, valueUsd: value });
 
   const requiresApproval = value > ctx.params.autoApproveLimitUsd;

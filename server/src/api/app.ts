@@ -97,6 +97,14 @@ export function createApp(opts: { plannerFactory?: (p: "policy" | "anthropic") =
   const ws = new Workspace({ params: config.params, today: config.simDate, plannerFactory: makePlanner });
   const provider = z.enum(["policy", "anthropic"]).optional();
 
+  // The agent works in the background: by the time anyone opens the app it has already
+  // reviewed the day-one position. Requests wait for that first pass to finish.
+  const ready = ws.scan(config.provider).catch((e) => console.error("[workspace] initial scan failed:", e instanceof Error ? e.message : e));
+  app.use("/api/workspace", async (_req, _res, next) => {
+    await ready;
+    next();
+  });
+
   app.get("/api/workspace", (_req, res) => res.json(ws.snapshot()));
 
   app.post("/api/workspace/advance", async (req, res, next) => {
@@ -145,9 +153,14 @@ export function createApp(opts: { plannerFactory?: (p: "policy" | "anthropic") =
     }
   });
 
-  app.post("/api/workspace/reset", (_req, res) => {
-    ws.reset();
-    res.json(ws.snapshot());
+  app.post("/api/workspace/reset", async (_req, res, next) => {
+    try {
+      ws.reset();
+      await ws.scan(config.provider);
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
   });
 
   app.post("/api/workspace/approvals/:id", (req, res, next) => {
@@ -163,6 +176,48 @@ export function createApp(opts: { plannerFactory?: (p: "policy" | "anthropic") =
   app.post("/api/workspace/escalations/:id/resolve", (req, res, next) => {
     try {
       ws.resolveEscalation(req.params.id);
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/workspace/items/:sku/:node", (req, res, next) => {
+    try {
+      res.json(ws.itemDetail(req.params.sku, req.params.node));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/workspace/suppliers", (_req, res) => res.json(ws.suppliersView()));
+
+  const settingsBody = z.object({ mode: z.enum(["autonomous", "approve_all", "paused"]).optional(), autoApproveLimitUsd: z.number().min(0).max(1_000_000).optional() });
+  app.post("/api/workspace/settings", async (req, res, next) => {
+    try {
+      const wasPaused = ws.getSettings().mode === "paused";
+      ws.setSettings(settingsBody.parse(req.body));
+      // resuming: the agent immediately catches up on whatever happened while it was paused
+      if (wasPaused && ws.getSettings().mode !== "paused") await ws.scan(config.provider);
+      res.json(ws.snapshot());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  const orderBody = z.object({ sku: z.string(), node: z.string(), supplierId: z.string(), qty: z.number().int().positive().max(1_000_000) });
+  app.post("/api/workspace/orders", (req, res, next) => {
+    try {
+      const r = ws.createManualOrder(orderBody.parse(req.body));
+      res.status(201).json({ ...r, workspace: ws.snapshot() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/workspace/orders/:id/cancel", (req, res, next) => {
+    try {
+      ws.cancelOrder(req.params.id);
       res.json(ws.snapshot());
     } catch (e) {
       next(e);

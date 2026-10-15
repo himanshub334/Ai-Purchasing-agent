@@ -27,5 +27,6 @@ export const config = {
     serviceLevelZ: num("SERVICE_LEVEL_Z", 1.65),
     excessCoverFactor: num("EXCESS_COVER_FACTOR", 1.5),
     autoApproveLimitUsd: num("AUTO_APPROVE_LIMIT_USD", 5000),
+    runValueCapUsd: num("MAX_RUN_VALUE_USD", 50_000),
   } satisfies PlanParams,
 };

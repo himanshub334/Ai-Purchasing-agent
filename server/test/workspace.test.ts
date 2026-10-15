@@ -143,3 +143,132 @@ test("api: workspace endpoints drive the live app", async () => {
     server.close();
   }
 });
+
+// ---- buyer-facing features ---------------------------------------------------------------------
+
+test("every agent-created PO links back to the run that created it, with names for the UI", async () => {
+  const ws = make();
+  await ws.scan();
+  const snap = ws.snapshot();
+  const agentOrders = snap.orders.filter((o) => o.createdBy === "agent");
+  assert.ok(agentOrders.length >= 2);
+  for (const o of agentOrders) {
+    assert.ok(o.runId, `${o.id} has a run link`);
+    assert.ok(ws.getRun(o.runId!), "run is retrievable");
+    assert.ok(o.name && o.supplierName && o.valueUsd > 0);
+  }
+  const f = snap.feed.find((x) => x.kind === "agent")! as { poIds: string[] };
+  assert.ok(f.poIds.length >= 1);
+});
+
+test("automation mode 'approve_all': every order the agent prepares waits for the buyer", async () => {
+  const ws = make();
+  ws.setSettings({ mode: "approve_all" });
+  await ws.scan();
+  const snap = ws.snapshot();
+  const agentOrders = snap.orders.filter((o) => o.createdBy === "agent");
+  assert.ok(agentOrders.length >= 2);
+  assert.ok(agentOrders.every((o) => o.status === "pending_approval"), "nothing committed without approval");
+  assert.equal(snap.approvals.length, agentOrders.length);
+  assert.equal(ws.detectIssues().length, 0, "pending orders count toward position, so no duplicate orders");
+});
+
+test("automation mode 'paused': the agent does nothing, and catches up when resumed", async () => {
+  const ws = make();
+  ws.setSettings({ mode: "paused" });
+  const r = (await ws.scan()) as { handled: number };
+  assert.equal(r.handled, 0);
+  await ws.advance(2);
+  assert.equal(ws.snapshot().orders.filter((o) => o.createdBy === "agent").length, 0);
+  ws.setSettings({ mode: "autonomous" });
+  assert.ok(((await ws.scan()) as { handled: number }).handled >= 1);
+});
+
+test("a lower auto-approve limit sends mid-sized orders to approval; settings are validated", async () => {
+  const ws = make();
+  ws.setSettings({ autoApproveLimitUsd: 500 });
+  await ws.scan();
+  assert.ok(ws.snapshot().approvals.length >= 1, "the $1,000+ milk order needs approval at a $500 limit");
+  assert.throws(() => ws.setSettings({ autoApproveLimitUsd: -1 }));
+});
+
+test("buyer places a manual order: ERP rules apply, warnings come back, the agent counts it", async () => {
+  const ws = make();
+  const r = ws.createManualOrder({ sku: "NOODLE-4PK", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 500 });
+  assert.equal(r.po.createdBy, "buyer");
+  assert.ok(r.findings.some((f) => f.code === "EXCESS_STOCK"), "the validator warns about over-ordering excess stock");
+  assert.throws(() => ws.createManualOrder({ sku: "NOODLE-4PK", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 55 }), /MOQ/);
+  // an order by hand for MILK removes the need for the agent to act on it
+  ws.createManualOrder({ sku: "MILK-1L", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 1000 });
+  assert.ok(!ws.detectIssues().some((i) => i.sku === "MILK-1L"));
+});
+
+test("cancelling: open orders release budget; a pending order is rejected in the approval queue", async () => {
+  const ws = make({ ...params, autoApproveLimitUsd: 500 });
+  const before = ws.snapshot().budgets.find((b) => b.category === "dairy")!.remainingUsd;
+  await ws.scan();
+  const pending = ws.snapshot().orders.find((o) => o.status === "pending_approval")!;
+  ws.cancelOrder(pending.id);
+  assert.equal(ws.snapshot().approvals.some((a) => a.poId === pending.id), false);
+  assert.equal(ws.snapshot().orders.find((o) => o.id === pending.id)!.status, "cancelled");
+  const open = ws.createManualOrder({ sku: "MILK-1L", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 200 });
+  ws.cancelOrder(open.po.id);
+  assert.equal(ws.snapshot().budgets.find((b) => b.category === "dairy")!.remainingUsd, before);
+  assert.throws(() => ws.cancelOrder(open.po.id), /cancelled/);
+});
+
+test("item detail: history, supplier options, suggestion and the agent's activity for that item", async () => {
+  const ws = make();
+  const before = ws.itemDetail("MILK-1L", "FC-BLR-01");
+  assert.equal(before.salesLast14Days.length, 14);
+  assert.ok(before.suggestion && before.suggestion.qty > 0 && before.suggestion.supplierName);
+  assert.ok(before.options.length >= 2);
+  await ws.scan();
+  const after = ws.itemDetail("MILK-1L", "FC-BLR-01");
+  assert.equal(after.suggestion, null, "no suggestion once covered");
+  assert.ok(after.activity.length >= 1);
+  assert.ok(after.orders.some((o) => o.createdBy === "agent" && o.runId));
+  assert.throws(() => ws.itemDetail("NOPE", "FC-BLR-01"));
+});
+
+test("suppliers view: terms, open commitments and short-shipments", async () => {
+  const ws = make();
+  ws.applyEvent({ type: "supplier_short", poId: "PO-0002", confirmedQty: 100 });
+  const fresh = ws.suppliersView().find((s) => s.id === "SUP-FRESH")!;
+  assert.ok(fresh.items.length >= 2);
+  assert.equal(fresh.shortShipped, 1);
+  assert.ok(fresh.openOrders >= 1 && fresh.openValueUsd > 0);
+});
+
+test("api: settings, orders, item detail and suppliers; the agent has already worked before the first request", async () => {
+  const app = createApp({ plannerFactory: async () => new PolicyPlanner() });
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const post = (u: string, b: unknown = {}) => fetch(base + u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  try {
+    const snap = await (await fetch(`${base}/api/workspace`)).json();
+    assert.ok(snap.orders.some((o: any) => o.createdBy === "agent"), "agent already handled day-one issues");
+    assert.equal(snap.settings.mode, "autonomous");
+    const item = await (await fetch(`${base}/api/workspace/items/MILK-1L/FC-BLR-01`)).json();
+    assert.equal(item.row.sku, "MILK-1L");
+    assert.equal((await fetch(`${base}/api/workspace/items/NOPE/FC-BLR-01`)).status, 404);
+    assert.ok((await (await fetch(`${base}/api/workspace/suppliers`)).json()).length >= 3);
+
+    const bad = await post("/api/workspace/orders", { sku: "RICE-5KG", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 55 });
+    assert.equal(bad.status, 409);
+    const ok = await post("/api/workspace/orders", { sku: "RICE-5KG", node: "FC-BLR-01", supplierId: "SUP-AGRO", qty: 100 });
+    assert.equal(ok.status, 201);
+    const created = await ok.json();
+    assert.equal((await post(`/api/workspace/orders/${created.po.id}/cancel`)).status, 200);
+    assert.equal((await post(`/api/workspace/orders/${created.po.id}/cancel`)).status, 409);
+
+    assert.equal((await post("/api/workspace/settings", { mode: "nope" })).status, 400);
+    const paused = await (await post("/api/workspace/settings", { mode: "paused" })).json();
+    assert.equal(paused.settings.mode, "paused");
+    const reset = await (await post("/api/workspace/reset")).json();
+    assert.equal(reset.settings.mode, "autonomous");
+    assert.ok(reset.orders.some((o: any) => o.createdBy === "agent"), "agent works again right after reset");
+  } finally {
+    server.close();
+  }
+});

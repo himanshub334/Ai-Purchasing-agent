@@ -137,6 +137,8 @@ export interface PlanParams {
   serviceLevelZ: number;
   excessCoverFactor: number;
   autoApproveLimitUsd: number;
+  /** hard ceiling on the value of orders one agent run may create, independent of the approval limit */
+  runValueCapUsd?: number;
 }
 
 // ---- Triggers: the "purchasing situations" handed to the agent ----
