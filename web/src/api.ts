@@ -1,4 +1,4 @@
-import type { EvalReport, Health, RunResult, ScenarioInfo } from "./types";
+import type { EvalReport, Health, RunResult, ScenarioInfo, Workspace } from "./types";
 
 async function j<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -15,4 +15,13 @@ export const api = {
   resolveApproval: (runId: string, approvalId: string, decision: "approved" | "rejected") =>
     post(`/api/runs/${runId}/approvals/${approvalId}`, { decision }).then((r) => j<unknown>(r)),
   evals: (provider: string) => post("/api/evals", { provider }).then((r) => j<EvalReport>(r)),
+  workspace: () => fetch("/api/workspace").then((r) => j<Workspace>(r)),
+  advance: (days: number, provider: string) => post("/api/workspace/advance", { days, provider }).then((r) => j<{ workspace: Workspace }>(r)).then((x) => x.workspace),
+  scan: (provider: string) => post("/api/workspace/scan", { provider }).then((r) => j<{ workspace: Workspace }>(r)).then((x) => x.workspace),
+  event: (e: Record<string, unknown>) => post("/api/workspace/events", e).then((r) => j<Workspace>(r)),
+  autopilot: (enabled: boolean, intervalMs: number, provider: string) => post("/api/workspace/autopilot", { enabled, intervalMs, provider }).then((r) => j<Workspace>(r)),
+  reset: () => post("/api/workspace/reset", {}).then((r) => j<Workspace>(r)),
+  wsApproval: (id: string, decision: "approved" | "rejected") => post(`/api/workspace/approvals/${id}`, { decision }).then((r) => j<Workspace>(r)),
+  wsResolve: (id: string) => post(`/api/workspace/escalations/${id}/resolve`, {}).then((r) => j<Workspace>(r)),
+  wsRun: (id: string) => fetch(`/api/workspace/runs/${id}`).then((r) => j<RunResult>(r)),
 };

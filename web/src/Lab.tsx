@@ -16,7 +16,7 @@ function triggerChips(t: ScenarioInfo["trigger"], faults: ScenarioInfo["faults"]
   return chips;
 }
 
-export default function App() {
+export default function Lab() {
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [selected, setSelected] = useState<string>("");
