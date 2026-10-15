@@ -93,8 +93,9 @@ export function createApp(opts: { plannerFactory?: (p: "policy" | "anthropic") =
   });
 
   // Serve the built UI in production (single container).
-  const webDist = fileURLToPath(new URL("../../../web/dist", import.meta.url));
-  if (existsSync(webDist)) {
+  // Works from source (server/src/api) and from the esbuild bundle (server/dist).
+  const webDist = ["../../../web/dist", "../../web/dist"].map((p) => fileURLToPath(new URL(p, import.meta.url))).find((p) => existsSync(p));
+  if (webDist) {
     app.use(express.static(webDist));
     app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(`${webDist}/index.html`));
   }

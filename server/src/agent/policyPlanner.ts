@@ -345,7 +345,7 @@ export class PolicyPlanner implements Planner {
       const same = created.length === 1 && Math.abs(total - rec) / rec <= 0.1 && !escalated && (!t.supplierId || created[0].supplierId === t.supplierId);
       action = same ? "accept" : "modify";
     } else if (t.type === "purchase_needed") {
-      const same = created.length === 1 && Math.abs(total - t.qty) / t.qty <= 0.05 && !escalated;
+      const same = Math.abs(total - t.qty) / t.qty <= 0.05 && !escalated;
       action = same ? "accept" : "modify";
     } else {
       action = "modify";
@@ -357,7 +357,7 @@ export class PolicyPlanner implements Planner {
       summary = action === "accept" ? `Accepted the recommendation: ordered ${total} units (recommended ${t.recommendedQty}).` : `Modified the recommendation: ordered ${total} units instead of ${t.recommendedQty}.`;
     else if (t.type === "supplier_shortfall") summary = `Supplier short-shipped (${t.confirmedQty} of ${t.requestedQty}): sourced ${total} replacement units.`;
     else if (t.type === "demand_change") summary = `Demand is running above plan: added ${total} units on top of the existing purchase order(s).`;
-    else summary = action === "accept" ? `Executed the required purchase of ${total} units.` : `Purchase adjusted to fit constraints: ordered ${total} units of the ${t.qty} wanted.`;
+    else summary = action === "accept" ? `Executed the required purchase of ${total} units${created.length > 1 ? ` across ${created.length} purchase orders (the first was corrected after verification failed)` : ""}.` : `Purchase adjusted to fit constraints: ordered ${total} units of the ${t.qty} wanted.`;
     if (action === "escalate" && created.length) summary += " A stock-out risk remains and has been escalated.";
 
     if (escalated) risks.push(escalated.summary);
