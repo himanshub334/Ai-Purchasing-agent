@@ -212,7 +212,7 @@ export class Workspace {
       // Reorder-point policy: only act once the position has fallen to the reorder point, then order up to target.
       if (!gov || gov.position.netRequirement === 0 || gov.position.inventoryPosition > gov.position.reorderPoint) continue;
       if (sit.demand.sustainedIncrease) {
-        issues.push({ key: `demand:${sku}@${node}`, type: "demand_change", sku, node, urgency, reason: `sales at ${Math.round(sit.demand.ratio * 100)}% of baseline; position ${gov.position.inventoryPosition} is at/below the reorder point ${gov.position.reorderPoint}`, trigger: { type: "demand_change", sku, node } });
+        issues.push({ key: `demand:${sku}@${node}`, type: "demand_change", sku, node, urgency, reason: `demand is ${sit.demand.effectiveDaily}/day vs forecast ${sit.demand.planningDaily}/day; position ${gov.position.inventoryPosition} is at/below the reorder point ${gov.position.reorderPoint}`, trigger: { type: "demand_change", sku, node } });
       } else {
         issues.push({ key: `need:${sku}@${node}`, type: "purchase_needed", sku, node, urgency, reason: `position ${gov.position.inventoryPosition} fell to the reorder point ${gov.position.reorderPoint}; target is ${gov.position.targetPosition}`, trigger: { type: "purchase_needed", sku, node, qty: gov.legalNeedQty, supplierId: gov.terms.supplierId } });
       }
