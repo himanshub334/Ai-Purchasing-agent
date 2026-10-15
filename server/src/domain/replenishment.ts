@@ -38,7 +38,10 @@ export function assessDemand(d: DemandInfo): DemandAssessment {
   const recentMedian = median(last7);
   const ratio = d.baselineDaily > 0 ? recentMedian / d.baselineDaily : 1;
   const daysAbove = last7.filter((x) => x >= d.baselineDaily * 1.2).length;
-  const sustainedIncrease = last7.length >= 5 && ratio >= 1.3 && daysAbove >= 5;
+  // Fast path for large surges: 3 consecutive days at >= 1.8x baseline is a trend, not a blip.
+  const last3 = d.dailySales.slice(-3);
+  const strongSurge = last3.length === 3 && d.baselineDaily > 0 && last3.every((x) => x >= d.baselineDaily * 1.8);
+  const sustainedIncrease = strongSurge || (last7.length >= 5 && ratio >= 1.3 && daysAbove >= 5);
 
   const excess = last7.map((x) => Math.max(0, x - d.baselineDaily));
   const totalExcess = excess.reduce((a, b) => a + b, 0);
@@ -47,12 +50,12 @@ export function assessDemand(d: DemandInfo): DemandAssessment {
   const notes: string[] = [];
   const forecastStale = d.forecastAgeDays > STALE_FORECAST_DAYS;
   if (forecastStale) notes.push(`forecast is ${d.forecastAgeDays} days old (stale)`);
-  if (sustainedIncrease)
-    notes.push(`sales ran at ${(ratio * 100).toFixed(0)}% of baseline on ${daysAbove}/7 days: sustained increase`);
+  if (strongSurge) notes.push(`sales were at least 180% of baseline on each of the last 3 days (avg ${round2(mean(last3))}/day): strong surge`);
+  else if (sustainedIncrease) notes.push(`sales ran at ${(ratio * 100).toFixed(0)}% of baseline on ${daysAbove}/7 days: sustained increase`);
   if (isolatedSpike) notes.push("one day explains most of the recent excess: treated as a one-off spike");
   if (d.promoActive) notes.push("a promotion is active: uplift may be temporary");
 
-  const effectiveDaily = sustainedIncrease ? Math.max(recentMean, d.forecastDaily) : d.forecastDaily;
+  const effectiveDaily = strongSurge ? Math.max(mean(last3), d.forecastDaily) : sustainedIncrease ? Math.max(recentMean, d.forecastDaily) : d.forecastDaily;
   return {
     effectiveDaily: round2(effectiveDaily),
     planningDaily: d.forecastDaily,

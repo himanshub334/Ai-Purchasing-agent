@@ -46,6 +46,11 @@ test("assessDemand: sustained increase vs one-day spike vs stale forecast", () =
   assert.equal(spike.sustainedIncrease, false);
   assert.equal(spike.isolatedSpike, true);
   assert.equal(spike.effectiveDaily, 60, "a spike must not raise planning demand");
+  const surge3 = assessDemand({ ...base, dailySales: [60, 61, 59, 60, 62, 60, 61, 60, 62, 59, 130, 150, 160, 155] });
+  assert.equal(surge3.sustainedIncrease, true, "3 consecutive days at >=1.8x baseline is a strong surge");
+  assert.ok(surge3.effectiveDaily > 140, "effective demand follows the recent days, not a diluted 7-day mean");
+  const twoDays = assessDemand({ ...base, dailySales: [60, 61, 59, 60, 62, 60, 61, 60, 62, 59, 60, 150, 160, 61] });
+  assert.equal(twoDays.sustainedIncrease, false, "a 2-day blip is not enough");
   const stale = assessDemand({ ...base, dailySales: Array(14).fill(60), forecastAgeDays: 30 });
   assert.equal(stale.forecastStale, true);
 });
