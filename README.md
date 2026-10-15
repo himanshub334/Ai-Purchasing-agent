@@ -12,6 +12,13 @@ It is not a chatbot that answers purchasing questions. It makes, executes and ve
 | Agents | A deterministic **policy agent** (runs offline, used for CI/evals) and a **Claude tool-use agent**, both going through the same guarded tool layer |
 | Evaluation | 14 scenarios x 6 questions from the brief, plus a naive "blindly execute" agent that the evals must fail |
 
+![Live workspace](docs/screenshots/live-workspace.png)
+
+**The app has two parts:**
+
+1. **Live workspace (the running application).** A simulated warehouse evolves day by day (sales consume stock, POs arrive on their ETA). The agent **monitors it continuously**, notices problems by itself (stock at its reorder point, a supplier short-shipping, a sales surge), investigates, acts, verifies, and hands off to a human when it must. Turn on *Autopilot* and watch it work, or step the days yourself.
+2. **Scenario lab & evals.** The 14 fixed scenarios from the brief, with full trace and a scorecard.
+
 ![Agent run](docs/screenshots/agent-run.png)
 
 ## Quick start
@@ -36,7 +43,7 @@ docker compose up --build               # same, in Docker
 Other commands:
 
 ```bash
-npm test             # 31 unit / integration tests
+npm test             # 41 unit / integration tests
 npm run eval         # the evaluation suite, prints a scorecard (exit code 1 on any failure)
 npm run eval -- --verbose --only s4-fault-silent-partial-write
 npm run typecheck
@@ -55,6 +62,20 @@ ANTHROPIC_MODEL=claude-sonnet-5-5
 You can also pick the agent per run in the UI, or run `npm run eval -- --provider anthropic` to grade the LLM with the same suite.
 
 > **Honest status:** the Claude agent's tool-use loop is covered by tests using a scripted fake client (loop mechanics, guardrails, "model never submits a decision"), but it has **not been run against the live API in this repository's CI**. Run `npm run eval -- --provider anthropic` once with your key to see how it scores; the guardrails and the independent audit apply to it exactly as to the policy agent.
+
+## The live workspace
+
+`server/src/workspace/workspace.ts` wraps the agent in an application:
+
+- **World:** a mock ERP seeded with 5 SKU x node pairs in different states (healthy, needs an order, excess, tight storage). `advanceDay()` receives POs whose ETA arrived, then takes the day's sales (seeded RNG, deterministic); the planning forecast refreshes weekly like a real planner.
+- **Monitor:** after each day (or on demand) it scans every pair and raises an issue when
+  - a PO's supplier confirmed less than ordered (`supplier_shortfall`, once per PO),
+  - inventory position has fallen to the **reorder point** and demand evidence shows a sustained increase (`demand_change`), or
+  - position is at the reorder point (`purchase_needed`, ordered up to target).
+  Each issue is handed to the **same agent** used by the scenarios. After every run it re-detects, because the agent's own actions change budget, storage and positions.
+- **Human in the loop:** POs above the limit wait in the approval queue (the position counts them, so the agent never double-orders). A pair with an **open escalation is parked** until a human marks it resolved, so the agent does not nag about something only a human can fix (e.g. release budget).
+- **Controls (UI):** next day / +7 days / scan now, Autopilot (one simulated day every 1.5-6 s on the server), and a "make something happen" panel: sales surge, supplier ships only half, release budget. With Autopilot on the agent reacts to an event immediately.
+- **Why a reorder point:** an earlier version ordered whenever position was below target and spammed tiny MOQ-sized orders almost daily (37 runs in 21 simulated days vs 11 now). Classic (s,S): act at the reorder point, order up to target.
 
 ## Architecture
 
@@ -183,6 +204,7 @@ See `.env.example`. Business rules that change decisions: `AUTO_APPROVE_LIMIT_US
 
 - **Mock ERP is in-memory and single-process.** A real integration needs persistence, idempotency keys on PO creation and optimistic concurrency; the tool layer is where those would go.
 - **Single-supplier orders.** The agent picks one supplier per order and re-plans, so it can place a second order with another supplier, but it does not optimise splits across suppliers.
+- **Trend detection has a lag.** A sustained increase needs ~5 elevated days, or 3 consecutive days at >= 1.8x baseline (fast path for big surges). A modest surge can therefore cause some lost sales before the agent reacts; that is the price of not chasing one-day spikes. The live workspace shows these as "Stock-out: lost N units" in the activity feed.
 - **Demand model is simple** (baseline, median-vs-baseline trend test, normal safety stock). Promotions, seasonality and forecast-error learning are flagged in evidence notes but not modelled.
 - **Approval is a single threshold.** A real policy would vary by category, supplier and role.
 - **LLM agent unproven live** (see above). Next step: record a live run's trace and add an LLM-as-judge on rationale quality, with the deterministic checks remaining the gate.
