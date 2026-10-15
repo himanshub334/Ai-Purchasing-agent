@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "8787"
