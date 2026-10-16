@@ -63,19 +63,51 @@ export interface PairRow {
 
 export type FeedItem =
   | { seq: number; simDate: string; kind: "world" | "human"; text: string }
-  | { seq: number; simDate: string; kind: "agent"; text: string; runId: string; issueType: string; sku: string; node: string; decision: string; status: string; needsHuman: boolean };
+  | { seq: number; simDate: string; kind: "agent"; text: string; runId: string; poIds: string[]; issueType: string; sku: string; node: string; decision: string; status: string; needsHuman: boolean };
+export type AgentFeedItem = Extract<FeedItem, { kind: "agent" }>;
+
+export interface Order extends Po {
+  name: string; supplierName: string; valueUsd: number; runId: string | null; createdAt: string;
+}
+export interface Approval { id: string; poId: string; reason: string; valueUsd: number; status: string }
+export interface Escalation { id: string; sku: string; node: string; severity: "low" | "medium" | "high"; summary: string; recommendedNextStep: string; status: "open" | "resolved"; createdAt: string }
+export type Mode = "autonomous" | "approve_all" | "paused";
 
 export interface Workspace {
   simDate: string;
   busy: boolean;
   autopilot: { enabled: boolean; intervalMs: number; provider: string };
+  settings: { mode: Mode; autoApproveLimitUsd: number };
   rows: PairRow[];
   purchaseOrders: Po[];
-  approvals: Array<{ id: string; poId: string; reason: string; valueUsd: number; status: string }>;
-  escalations: Array<{ id: string; sku: string; node: string; severity: string; summary: string; recommendedNextStep: string; status: "open" | "resolved"; createdAt: string }>;
+  orders: Order[];
+  approvals: Approval[];
+  escalations: Escalation[];
   budgets: Array<{ category: string; remainingUsd: number }>;
   storage: Array<{ node: string; capacityM3: number; usedM3: number; reservedIncomingM3: number; freeM3: number }>;
   feed: FeedItem[];
-  products: Array<{ sku: string; category: string }>;
+  products: Array<{ sku: string; name: string; category: string }>;
   nodes: string[];
+  nodeNames: Record<string, string>;
 }
+
+export interface SupplierOption {
+  supplierId: string; supplierName: string; active: boolean; reliability: number; unitCost: number;
+  leadTimeDays: number; moq: number; casePack: number; maxQtyPerOrder: number | null; arrivesAfterStockout: boolean;
+}
+export interface ItemDetail {
+  row: PairRow;
+  product: { sku: string; name: string; category: string; unitVolumeM3: number };
+  salesLast14Days: number[]; baselineDaily: number; forecastDaily: number; forecastAgeDays: number; demandNotes: string[];
+  options: SupplierOption[];
+  suggestion: { supplierId: string; supplierName: string; qty: number; valueUsd: number; reason: string } | null;
+  budgetRemainingUsd: number; storageFreeM3: number;
+  orders: Order[];
+  activity: AgentFeedItem[];
+}
+export interface SupplierView {
+  id: string; name: string; active: boolean; reliability: number;
+  items: Array<{ sku: string; name: string; unitCost: number; leadTimeDays: number; moq: number; casePack: number; maxQtyPerOrder: number | null }>;
+  openOrders: number; openValueUsd: number; receivedOrders: number; shortShipped: number;
+}
+export interface OrderResult { po: Po; findings: Finding[]; workspace: Workspace }

@@ -12,11 +12,11 @@ It is not a chatbot that answers purchasing questions. It makes, executes and ve
 | Agents | A deterministic **policy agent** (runs offline, used for CI/evals) and a **Claude tool-use agent**, both going through the same guarded tool layer |
 | Evaluation | 14 scenarios x 6 questions from the brief, plus a naive "blindly execute" agent that the evals must fail |
 
-![Live workspace](docs/screenshots/live-workspace.png)
+![Buyer app: Today](docs/screenshots/buyer-today.png)
 
 **The app has two parts:**
 
-1. **Live workspace (the running application).** A simulated warehouse evolves day by day (sales consume stock, POs arrive on their ETA). The agent **monitors it continuously**, notices problems by itself (stock at its reorder point, a supplier short-shipping, a sales surge), investigates, acts, verifies, and hands off to a human when it must. Turn on *Autopilot* and watch it work, or step the days yourself.
+1. **Buyer app (the running application).** A normal purchasing UI (Today, Inventory, Orders, Suppliers, Automation) with the agent working silently in the backend. The buyer sees plain-language outcomes ("Ordered 920 × UHT Milk from AgroFoods…") with a *Why?* expander, a "Needs your decision" queue, manual ordering with live validation, and an automation switch (Autonomous / Ask me first / Paused) plus an editable approval limit. A demo clock (top right) moves time and causes incidents. The agent has already reviewed day one before the first request. Underneath: A simulated warehouse evolves day by day (sales consume stock, POs arrive on their ETA). The agent **monitors it continuously**, notices problems by itself (stock at its reorder point, a supplier short-shipping, a sales surge), investigates, acts, verifies, and hands off to a human when it must. Turn on *Autopilot* and watch it work, or step the days yourself.
 2. **Scenario lab & evals.** The 14 fixed scenarios from the brief, with full trace and a scorecard.
 
 ![Agent run](docs/screenshots/agent-run.png)
@@ -43,7 +43,7 @@ docker compose up --build               # same, in Docker
 Other commands:
 
 ```bash
-npm test             # 41 unit / integration tests
+npm test             # 50 unit / integration tests
 npm run eval         # the evaluation suite, prints a scorecard (exit code 1 on any failure)
 npm run eval -- --verbose --only s4-fault-silent-partial-write
 npm run typecheck
@@ -63,7 +63,12 @@ You can also pick the agent per run in the UI, or run `npm run eval -- --provide
 
 > **Honest status:** the Claude agent's tool-use loop is covered by tests using a scripted fake client (loop mechanics, guardrails, "model never submits a decision"), but it has **not been run against the live API in this repository's CI**. Run `npm run eval -- --provider anthropic` once with your key to see how it scores; the guardrails and the independent audit apply to it exactly as to the policy agent.
 
-## The live workspace
+## The buyer app and live workspace
+
+![Item view](docs/screenshots/buyer-item.png)
+![Needs your decision](docs/screenshots/buyer-decisions.png)
+
+Automation modes: *autonomous* (orders up to the approval limit, asks above it), *approve_all* (every order is queued for a human; the per-run value cap is separate, `MAX_RUN_VALUE_USD`), *paused* (no scanning until resumed, then it catches up). Manual orders go through the same ERP rules, and a PO links back to the agent run that created it.
 
 `server/src/workspace/workspace.ts` wraps the agent in an application:
 
@@ -198,7 +203,7 @@ Everything needed to run is in the repo: `server/src/erp/seed.ts` (products, sup
 
 ## Configuration
 
-See `.env.example`. Business rules that change decisions: `AUTO_APPROVE_LIMIT_USD`, `REVIEW_PERIOD_DAYS`, `SERVICE_LEVEL_Z`, `EXCESS_COVER_FACTOR`. No secrets are committed; `.env` is git-ignored.
+See `.env.example`. Business rules that change decisions: `AUTO_APPROVE_LIMIT_USD`, `REVIEW_PERIOD_DAYS`, `SERVICE_LEVEL_Z`, `EXCESS_COVER_FACTOR`, `MAX_RUN_VALUE_USD` (hard cap on one agent run). No secrets are committed; `.env` is git-ignored.
 
 ## Known limitations and what I would do next
 

@@ -1,4 +1,4 @@
-import type { EvalReport, Health, RunResult, ScenarioInfo, Workspace } from "./types";
+import type { EvalReport, Health, ItemDetail, Mode, OrderResult, RunResult, ScenarioInfo, SupplierView, Workspace } from "./types";
 
 async function j<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -24,4 +24,9 @@ export const api = {
   wsApproval: (id: string, decision: "approved" | "rejected") => post(`/api/workspace/approvals/${id}`, { decision }).then((r) => j<Workspace>(r)),
   wsResolve: (id: string) => post(`/api/workspace/escalations/${id}/resolve`, {}).then((r) => j<Workspace>(r)),
   wsRun: (id: string) => fetch(`/api/workspace/runs/${id}`).then((r) => j<RunResult>(r)),
+  item: (sku: string, node: string) => fetch(`/api/workspace/items/${sku}/${node}`).then((r) => j<ItemDetail>(r)),
+  suppliers: () => fetch("/api/workspace/suppliers").then((r) => j<SupplierView[]>(r)),
+  settings: (s: { mode?: Mode; autoApproveLimitUsd?: number }) => post("/api/workspace/settings", s).then((r) => j<Workspace>(r)),
+  placeOrder: (o: { sku: string; node: string; supplierId: string; qty: number }) => post("/api/workspace/orders", o).then((r) => j<OrderResult>(r)),
+  cancelOrder: (id: string) => post(`/api/workspace/orders/${id}/cancel`, {}).then((r) => j<Workspace>(r)),
 };
