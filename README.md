@@ -214,3 +214,4 @@ See `.env.example`. Business rules that change decisions: `AUTO_APPROVE_LIMIT_US
 - **Approval is a single threshold.** A real policy would vary by category, supplier and role.
 - **LLM agent unproven live** (see above). Next step: record a live run's trace and add an LLM-as-judge on rationale quality, with the deterministic checks remaining the gate.
 - **Optional extensions** from the brief that the same architecture supports with new tools/scenarios: supplier reliability weighting (already in ranking), promo buying, open-PO review, forecast anomaly detection.
+# Ai-Purchasing-agent
